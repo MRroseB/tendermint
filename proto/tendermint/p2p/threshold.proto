@@ -3,10 +3,8 @@ package tendermint.p2p;
 
 option go_package = "github.com/tendermint/tendermint/proto/tendermint/p2p";
 
-import "gogoproto/gogo.proto";
-
 message ThresholdData {
   bytes   data = 1;
-  int32   hopCount =2;
-  string  sourceID=3;
+  int32   hop_count =2;
+  string  source_id=3;
 }
