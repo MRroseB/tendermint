@@ -104,8 +104,9 @@ func (reactor *ProxyP2PReactor) ReceiveEnvelope(e p2p.Envelope) {
 		//check if the message is already in Clist
 		//check if this node is the original sender (how? for sure we need a new field in the proto msg)
 		//prevent loops for the gossiping
+
 		//Send it to the proxy to send it to thetacrypt
-		reactor.proxyP2P.ReceivedFromP2P(msg.GetData())
+		reactor.proxyP2P.SendToThetacrypt(msg.GetData())
 		//add the message to CList for gossip if the roundcount is not 0 yet (another field in the proto msg)
 		gossipMsg := NewNetworkGossipMessage(*msg, 2, e.Src)
 		reactor.messagePool.PushBack(*gossipMsg)

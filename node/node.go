@@ -11,6 +11,7 @@ import (
 	"time"
 
 	//local
+	"github.com/tendermint/tendermint/p2pproxyservice"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -212,8 +213,8 @@ type Node struct {
 	isListening bool
 
 	//added
-	proxyP2P        *tcpservice.P2P_Proxy
-	proxyP2PReactor *tcpservice.ProxyP2PReactor
+	proxyP2P        *p2pproxyservice.P2P_Proxy
+	proxyP2PReactor *p2pproxyservice.ProxyP2PReactor
 
 	// services
 	eventBus          *types.EventBus // pub/sub for services
@@ -263,8 +264,8 @@ func createAndStartProxyAppConns(clientCreator proxy.ClientCreator, logger log.L
 	return proxyApp, nil
 }
 
-func createAndStartProxyP2P(addr string, listeningAddr string, logger log.Logger, sw *p2p.Switch) (*tcpservice.P2P_Proxy, error) {
-	proxy := tcpservice.NewP2PProxy(addr, listeningAddr, logger, sw)
+func createAndStartProxyP2P(addr string, listeningAddr string, logger log.Logger, sw *p2p.Switch) (*p2pproxyservice.P2P_Proxy, error) {
+	proxy := p2pproxyservice.NewP2PProxy(addr, listeningAddr, logger, sw)
 	if err := proxy.Start(); err != nil {
 		return nil, fmt.Errorf("error starting proxy p2p server: %v", err)
 	}
@@ -716,8 +717,8 @@ func startStateSync(ssR *statesync.Reactor, bcR fastSyncReactor, conR *cs.Reacto
 	return nil
 }
 
-func createProxyP2PReactorAndAddToSwitch(proxy *tcpservice.P2P_Proxy, sw *p2p.Switch, logger log.Logger) *tcpservice.ProxyP2PReactor {
-	proxyP2PReactor := tcpservice.NewProxyP2PReactor(proxy)
+func createProxyP2PReactorAndAddToSwitch(proxy *p2pproxyservice.P2P_Proxy, sw *p2p.Switch, logger log.Logger) *p2pproxyservice.ProxyP2PReactor {
+	proxyP2PReactor := p2pproxyservice.NewProxyP2PReactor(proxy)
 	proxyP2PReactor.SetLogger(logger.With("module", "proxyP2PReactor"))
 
 	sw.AddReactor("proxyP2PReactor", proxyP2PReactor)
@@ -1339,7 +1340,7 @@ func (n *Node) Config() *cfg.Config {
 	return n.config
 }
 
-func (n *Node) ProxyP2P() *tcpservice.P2P_Proxy {
+func (n *Node) ProxyP2P() *p2pproxyservice.P2P_Proxy {
 	return n.proxyP2P
 }
 
@@ -1412,7 +1413,7 @@ func makeNodeInfo(
 	}
 
 	//added
-	nodeInfo.Channels = append(nodeInfo.Channels, tcpservice.ProxyP2PChannel)
+	nodeInfo.Channels = append(nodeInfo.Channels, p2pproxyservice.ProxyP2PChannel)
 
 	lAddr := config.P2P.ExternalAddress
 
