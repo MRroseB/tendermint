@@ -11,7 +11,6 @@ import (
 	"time"
 
 	//local
-	"github.com/tendermint/tendermint/tcpservice"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"

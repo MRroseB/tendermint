@@ -1,0 +1,12 @@
+syntax = "proto3";
+package tendermint.p2p;
+
+option go_package = "github.com/tendermint/tendermint/proto/tendermint/p2p";
+
+import "gogoproto/gogo.proto";
+
+message ThresholdData {
+  bytes   data = 1;
+  int32   hopCount =2;
+  string  sourceID=3;
+}
