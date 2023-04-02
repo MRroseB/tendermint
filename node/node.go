@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 
+	//local
+	"github.com/tendermint/tendermint/tcpservice"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
@@ -209,6 +212,10 @@ type Node struct {
 	nodeKey     *p2p.NodeKey // our node privkey
 	isListening bool
 
+	//added
+	proxyP2P        *tcpservice.P2P_Proxy
+	proxyP2PReactor *tcpservice.ProxyP2PReactor
+
 	// services
 	eventBus          *types.EventBus // pub/sub for services
 	stateStore        sm.Store
@@ -255,6 +262,14 @@ func createAndStartProxyAppConns(clientCreator proxy.ClientCreator, logger log.L
 		return nil, fmt.Errorf("error starting proxy app connections: %v", err)
 	}
 	return proxyApp, nil
+}
+
+func createAndStartProxyP2P(addr string, listeningAddr string, logger log.Logger, sw *p2p.Switch) (*tcpservice.P2P_Proxy, error) {
+	proxy := tcpservice.NewP2PProxy(addr, listeningAddr, logger, sw)
+	if err := proxy.Start(); err != nil {
+		return nil, fmt.Errorf("error starting proxy p2p server: %v", err)
+	}
+	return proxy, nil
 }
 
 func createAndStartEventBus(logger log.Logger) (*types.EventBus, error) {
@@ -702,6 +717,15 @@ func startStateSync(ssR *statesync.Reactor, bcR fastSyncReactor, conR *cs.Reacto
 	return nil
 }
 
+func createProxyP2PReactorAndAddToSwitch(proxy *tcpservice.P2P_Proxy, sw *p2p.Switch, logger log.Logger) *tcpservice.ProxyP2PReactor {
+	proxyP2PReactor := tcpservice.NewProxyP2PReactor(proxy)
+	proxyP2PReactor.SetLogger(logger.With("module", "proxyP2PReactor"))
+
+	sw.AddReactor("proxyP2PReactor", proxyP2PReactor)
+
+	return proxyP2PReactor
+}
+
 // NewNode returns a new, ready to go, Tendermint Node.
 func NewNode(config *cfg.Config,
 	privValidator types.PrivValidator,
@@ -899,6 +923,13 @@ func NewNode(config *cfg.Config,
 		}()
 	}
 
+	proxyP2P, err := createAndStartProxyP2P("0.0.0.0", "docker.for.mac.host.internal", logger, sw)
+	if err != nil {
+		return nil, fmt.Errorf("could not create proxy p2p: %w", err)
+	}
+
+	proxyP2PReactor := createProxyP2PReactorAndAddToSwitch(proxyP2P, sw, logger)
+
 	node := &Node{
 		config:        config,
 		genesisDoc:    genDoc,
@@ -909,6 +940,9 @@ func NewNode(config *cfg.Config,
 		addrBook:  addrBook,
 		nodeInfo:  nodeInfo,
 		nodeKey:   nodeKey,
+
+		proxyP2P:        proxyP2P, //added
+		proxyP2PReactor: proxyP2PReactor,
 
 		stateStore:       stateStore,
 		blockStore:       blockStore,
@@ -970,6 +1004,10 @@ func (n *Node) OnStart() error {
 		return err
 	}
 	if err := n.transport.Listen(*addr); err != nil {
+		return err
+	}
+
+	if err := n.proxyP2P.StartListener(); err != nil {
 		return err
 	}
 
@@ -1302,6 +1340,10 @@ func (n *Node) Config() *cfg.Config {
 	return n.config
 }
 
+func (n *Node) ProxyP2P() *tcpservice.P2P_Proxy {
+	return n.proxyP2P
+}
+
 //------------------------------------------------------------------------------
 
 func (n *Node) Listeners() []string {
@@ -1369,6 +1411,9 @@ func makeNodeInfo(
 	if config.P2P.PexReactor {
 		nodeInfo.Channels = append(nodeInfo.Channels, pex.PexChannel)
 	}
+
+	//added
+	nodeInfo.Channels = append(nodeInfo.Channels, tcpservice.ProxyP2PChannel)
 
 	lAddr := config.P2P.ExternalAddress
 

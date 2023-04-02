@@ -1,16 +1,18 @@
 package tcpservice
 
 import (
-	"encoding/binary"
 	"fmt"
-	"io"
-	"log"
 	"net"
 	"os"
+
+	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/service"
+	"github.com/tendermint/tendermint/p2p"
+	protop2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
 
 const (
-	HOST = "localhost"
+	HOST = "0.0.0.0"
 	PORT = "8080"
 	TYPE = "tcp"
 )
@@ -19,129 +21,135 @@ const (
 const prefixSize = 4
 
 type P2P_Proxy struct {
-	//base.Service
+	service.BaseService
 	//config
-	listener net.Listener
+	haddr         string
+	listeningAddr string
+	sw            *p2p.Switch
 }
 
 // pass in a config file the info about net addresses
-func NewP2PProxy() *P2P_Proxy {
-	listen, err := net.Listen(TYPE, HOST+":"+PORT)
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(1)
-	}
-	fmt.Println("Server is up and listening...")
+func NewP2PProxy(haddr string, listeningAddr string, logger log.Logger, sw *p2p.Switch) *P2P_Proxy {
+
 	proxy := &P2P_Proxy{
-		listener: listen,
+		haddr:         haddr,
+		listeningAddr: listeningAddr,
+		sw:            sw,
 	}
+
+	proxy.BaseService = *service.NewBaseService(logger, "P2PProxy", proxy)
 	return proxy
 }
 
-// OnStart -- Start handling request
-func (proxy *P2P_Proxy) HandleIncomingRequests() {
+// OnStart -- start the Listener in a subroutine
+func (proxy *P2P_Proxy) OnStart() error {
+
+	// go proxy.StartListener() // see how to handle catching the error
+	// don't use go here
+
+	return nil
+}
+
+func (proxy *P2P_Proxy) OnStop() {
+
+	// stop the listner
+
+	//handle the error
+}
+
+func (proxy P2P_Proxy) StartListener() error {
+
+	listener, err := net.Listen(TYPE, proxy.haddr+":"+PORT)
+	if err != nil {
+		return err
+	}
+	fmt.Println("Server is up and listening...")
+
+	go proxy.ReceiveFromThetacrypt(listener)
+	return nil
+}
+
+func (proxy *P2P_Proxy) ReceiveFromThetacrypt(listener net.Listener) error {
 	for {
-		conn, err := proxy.listener.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
-			log.Fatal(err)
-			os.Exit(1)
+			return err
 		}
 		fmt.Println("Server has accepted a request...")
-		go handleRequest(conn) // go -- goroutine starts a lightweight thread that does the job
+		go proxy.handleRequest(conn) // go -- goroutine starts a lightweight thread that does the job
 	}
 }
 
-func (proxy *P2P_Proxy) Send(msg []byte) {
+func (proxy *P2P_Proxy) SendToPeers(msg []byte) {
+	// peers := proxy.sw.Peers().List()
+	// successChan := make(chan bool, len(peers))
+	//send the msg on the p2p with sw.Broadcast
 
+	sourceID := proxy.sw.NodeInfo().ID()
+	thmsg := &protop2p.ThresholdData{
+		Data:     msg,
+		HopCount: 2,
+		SourceID: string(sourceID),
+	}
+	successChan := proxy.sw.BroadcastEnvelope(
+		p2p.Envelope{
+			ChannelID: ProxyP2PChannel,
+			Message:   thmsg,
+		}) //use broadcast envelope
+
+	for success := range successChan {
+		if !success {
+			println("[tcp-service] not sending messages...")
+		}
+	}
 }
 
-func (proxy *P2P_Proxy) ReceiveFromP2P(msg []byte) {
-	//Open the response channel
-	tcpServer, err := net.ResolveTCPAddr(TYPE, HOST+":"+"8081")
+func (proxy *P2P_Proxy) SendToThetacrypt(msg []byte) error {
+
+	println("[tcp_service] Received message from reactor:", string(msg))
+
+	//Open a tcp connection and send the msg
+	tcpServer, err := net.ResolveTCPAddr(TYPE, proxy.listeningAddr+":8081")
 
 	if err != nil {
 		println("ResolveTCPAddr failed:", err.Error())
 		os.Exit(1)
+		return err
 	}
 
 	conn, err := net.DialTCP(TYPE, nil, tcpServer)
 	if err != nil {
 		println("Dial failed:", err.Error())
 		os.Exit(1)
+		return err
 	}
 
-	//create buffer for the msg
-	buffer := createTcpBuffer([]byte(msg))
-	_, err = conn.Write(buffer)
+	_, err = conn.Write(msg)
 	if err != nil {
 		println("Write data failed:", err.Error())
 		os.Exit(1)
+		return err
 	}
 
-	received := make([]byte, 1024)
-	_, err = conn.Read(received)
-	if err != nil {
-		println("Read data failed:", err.Error())
-		os.Exit(1)
-	}
-
-	println("Received message:", string(received))
-
-	conn.Close() // Good practice to postpone the closure with defer
+	return nil
 }
 
-// func main() {
-// 	proxy := NewP2PProxy()
+func (proxy *P2P_Proxy) handleRequest(conn net.Conn) error {
 
-// 	go proxy.HandleIncomingRequests()
+	buffer := make([]byte, 4096) //Decide the dimension of the vector
 
-// 	proxy.ReceiveFromP2P([]byte("Ciao")) //gestire gli errori
-
-// 	for {
-// 	}
-
-// }
-
-func handleRequest(conn net.Conn) {
-
-	prefix := make([]byte, prefixSize) // incoming request size
-	_, err := io.ReadFull(conn, prefix)
+	//Read from the stream
+	_, err := conn.Read(buffer)
 	if err != nil {
-		log.Fatal(err)
-	}
-	totalDataLength := binary.BigEndian.Uint32(prefix[:])
-
-	// Buffer to store the actual data
-	buffer := make([]byte, totalDataLength-prefixSize)
-
-	// Read actual data without prefix
-	_, err = io.ReadFull(conn, buffer)
-	if err != nil {
-		log.Fatal(err)
+		println("Error reading buffer ...")
+		return err
 	}
 
 	//Broadcast on the p2p network
-
-	// write data to response
-	responseStr := fmt.Sprintf("Your message has been sent on the p2p")
-	conn.Write([]byte(responseStr))
+	proxy.SendToPeers(buffer)
 
 	// close conn
 	defer conn.Close() // Good practice to postpone the closure with defer
-}
 
-// createTcpBuffer() implements the TCP protocol used in this application
-// A stream of TCP data to be sent over has two parts: a prefix and the actual data itself
-// The prefix is a fixed length byte that states how much data is being transferred over
-func createTcpBuffer(data []byte) []byte {
-	// Create a buffer with size enough to hold a prefix and actual data
-	buf := make([]byte, prefixSize+len(data))
-
-	// State the total number of bytes (including prefix) to be transferred over
-	binary.BigEndian.PutUint32(buf[:prefixSize], uint32(prefixSize+len(data)))
-
-	// Copy data into the remaining buffer
-	copy(buf[prefixSize:], data[:])
-
-	return buf
+	return nil
 }
