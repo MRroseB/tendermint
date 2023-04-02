@@ -1,4 +1,4 @@
-package tcpservice
+package p2pproxyservice
 
 import (
 	"fmt"
